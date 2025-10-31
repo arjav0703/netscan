@@ -45,8 +45,11 @@ async fn main() -> Result<()> {
     );
     println!("{}", "-".repeat(80));
 
+    let ports = config.get_ports();
+    let timeout = Duration::from_millis(config.timeout);
+
     for ip in up_hosts.iter() {
-        let info = get_host_info(*ip).await;
+        let info = get_host_info(*ip, ports.clone(), timeout).await;
         println!("{}", info);
     }
 
@@ -107,10 +110,10 @@ impl std::fmt::Display for HostInfo {
     }
 }
 
-async fn get_host_info(ip: IpAddr) -> HostInfo {
-    let hostname = lookup_hostname(ip).await;
-    let latency_ms = measure_latency(ip).await;
-    let open_ports = scan_common_ports(ip).await;
+async fn get_host_info(ip: IpAddr, ports: Vec<u16>, timeout: Duration) -> HostInfo {
+    let hostname = lookup_hostname(ip, timeout).await;
+    let latency_ms = measure_latency(ip, timeout).await;
+    let open_ports = scan_common_ports(ip, ports, timeout).await;
 
     HostInfo {
         ip,
@@ -120,14 +123,14 @@ async fn get_host_info(ip: IpAddr) -> HostInfo {
     }
 }
 
-async fn lookup_hostname(ip: IpAddr) -> Option<String> {
+async fn lookup_hostname(ip: IpAddr, _timeout: Duration) -> Option<String> {
     tokio::task::spawn_blocking(move || lookup_addr(&ip).ok())
         .await
         .ok()
         .flatten()
 }
 
-async fn measure_latency(ip: IpAddr) -> f64 {
+async fn measure_latency(ip: IpAddr, timeout: Duration) -> f64 {
     let config = Config::default();
     let client = match Client::new(&config) {
         Ok(c) => c,
@@ -135,7 +138,7 @@ async fn measure_latency(ip: IpAddr) -> f64 {
     };
 
     let mut pinger = client.pinger(ip, PingIdentifier(0)).await;
-    pinger.timeout(Duration::from_millis(1000));
+    pinger.timeout(timeout);
 
     let start = Instant::now();
     match pinger.ping(PingSequence(0), &[]).await {
@@ -144,33 +147,13 @@ async fn measure_latency(ip: IpAddr) -> f64 {
     }
 }
 
-async fn scan_common_ports(ip: IpAddr) -> Vec<u16> {
-    // Common ports to scan
-    let ports = vec![
-        21,   // FTP
-        22,   // SSH
-        23,   // Telnet
-        25,   // SMTP
-        53,   // DNS
-        80,   // HTTP
-        110,  // POP3
-        143,  // IMAP
-        443,  // HTTPS
-        445,  // SMB
-        3306, // MySQL
-        3389, // RDP
-        5432, // PostgreSQL
-        5900, // VNC
-        8080, // HTTP Alt
-        8443, // HTTPS Alt
-    ];
-
+async fn scan_common_ports(ip: IpAddr, ports: Vec<u16>, timeout: Duration) -> Vec<u16> {
     let mut open_ports = Vec::new();
     let mut tasks = Vec::new();
 
     for port in ports {
         let task = tokio::spawn(async move {
-            if is_port_open(ip, port).await {
+            if is_port_open(ip, port, timeout).await {
                 Some(port)
             } else {
                 None
@@ -189,9 +172,9 @@ async fn scan_common_ports(ip: IpAddr) -> Vec<u16> {
     open_ports
 }
 
-async fn is_port_open(ip: IpAddr, port: u16) -> bool {
+async fn is_port_open(ip: IpAddr, port: u16, timeout_dur: Duration) -> bool {
     let addr = SocketAddr::new(ip, port);
-    match timeout(Duration::from_millis(1000), TcpStream::connect(addr)).await {
+    match timeout(timeout_dur, TcpStream::connect(addr)).await {
         Ok(Ok(_)) => true,
         _ => false,
     }
