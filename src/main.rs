@@ -74,7 +74,7 @@ async fn host_is_up(ip: IpAddr) -> bool {
     };
 
     let mut pinger = client.pinger(ip, PingIdentifier(0)).await;
-    pinger.timeout(Duration::from_millis(800));
+    pinger.timeout(Duration::from_millis(1000));
 
     pinger.ping(PingSequence(0), &[]).await.is_ok()
 }
@@ -191,7 +191,7 @@ async fn scan_common_ports(ip: IpAddr) -> Vec<u16> {
 
 async fn is_port_open(ip: IpAddr, port: u16) -> bool {
     let addr = SocketAddr::new(ip, port);
-    match timeout(Duration::from_millis(500), TcpStream::connect(addr)).await {
+    match timeout(Duration::from_millis(1000), TcpStream::connect(addr)).await {
         Ok(Ok(_)) => true,
         _ => false,
     }
